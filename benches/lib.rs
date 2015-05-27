@@ -30,7 +30,7 @@ mod tests {
 
   #[bench]
   fn bench02_pooled_allocation_speed(b: &mut Bencher) {
-    let mut pool : Pool<String> = Pool::with_size(5);
+    let pool : Pool<String> = Pool::with_size(5);
     b.iter(|| {
       for _ in 0..ITERATIONS {
         let _string = pool.new();
@@ -57,7 +57,7 @@ mod tests {
 
   #[bench]
   fn bench04_pooled_initialized_allocation_speed(b: &mut Bencher) {
-    let mut pool : Pool<String> = Pool::with_size(5);
+    let pool : Pool<String> = Pool::with_size(5);
     b.iter(|| {
       for _ in 0..ITERATIONS {
         let _string = pool.new_from("man");
@@ -79,15 +79,15 @@ mod tests {
               }
               v1.push(v2);
           }
-          v1
       });
   }
 
+
   #[bench]
   fn bench06_pooled_vec_vec_str(bencher: &mut Bencher) {
-      let mut vec_str_pool : Pool<Vec<Recycled<String>>> = Pool::with_size(100);
-      let mut str_pool : Pool<String> = Pool::with_size(10000);
-      bencher.iter(|| {
+      let str_pool : Pool<String> = Pool::with_size(10000);
+      let vec_str_pool : Pool<Vec<Recycled<String>>> = Pool::with_size(100);
+      let _ = bencher.iter(|| {
           let mut v1 = Vec::new();
           for _ in 0..100 {
               let mut v2 = vec_str_pool.new();
@@ -96,7 +96,6 @@ mod tests {
               }
               v1.push(v2);
           }
-          v1
       });
   }
 }

@@ -1,5 +1,4 @@
 #![allow(dead_code)]
-use std::rc::Rc;
 use std::cell::RefCell;
 use std::fmt;
 use std::ops::{Drop, Deref, DerefMut};
@@ -44,12 +43,12 @@ impl <A> InitializeWith<A> for String where A : AsRef<str> {
   }
 }
 
-pub struct Recycled<T> where T : Recycleable {
+pub struct Recycled<'pool, T> where T : Recycleable + 'pool {
   pub value: Option<T>,
-  pool: Rc<RefCell<Vec<T>>>
+  pool: &'pool RefCell<Vec<T>>
 }
 
-impl <T> Drop for Recycled<T> where T : Recycleable {
+impl <'pool, T> Drop for Recycled<'pool, T> where T : Recycleable {
   #[inline] 
   fn drop(&mut self) {
     if let Some(mut value) = self.value.take() {
@@ -59,7 +58,7 @@ impl <T> Drop for Recycled<T> where T : Recycleable {
   }
 }
 
-impl <T> AsRef<T> for Recycled<T> where T : Recycleable {
+impl <'pool, T> AsRef<T> for Recycled<'pool, T> where T : Recycleable {
    fn as_ref(&self) -> &T {
     match self.value.as_ref() {
       Some(v) => v,
@@ -68,7 +67,7 @@ impl <T> AsRef<T> for Recycled<T> where T : Recycleable {
   }
 }
 
-impl <T> AsMut<T> for Recycled<T> where T : Recycleable {
+impl <'pool, T> AsMut<T> for Recycled<'pool, T> where T : Recycleable {
    fn as_mut(&mut self) -> &mut T {
     match self.value.as_mut() {
       Some(v) => v,
@@ -77,7 +76,7 @@ impl <T> AsMut<T> for Recycled<T> where T : Recycleable {
   }
 }
 
-impl <T> fmt::Debug for Recycled<T> where T : fmt::Debug + Recycleable {
+impl <'pool, T> fmt::Debug for Recycled<'pool, T> where T : fmt::Debug + Recycleable {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     match self.value {
       Some(ref s) => s.fmt(f),
@@ -86,7 +85,7 @@ impl <T> fmt::Debug for Recycled<T> where T : fmt::Debug + Recycleable {
   }
 }
 
-impl <T> fmt::Display for Recycled<T> where T : fmt::Display + Recycleable {
+impl <'pool, T> fmt::Display for Recycled<'pool, T> where T : fmt::Display + Recycleable {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     match self.value {
       Some(ref s) => s.fmt(f),
@@ -95,7 +94,7 @@ impl <T> fmt::Display for Recycled<T> where T : fmt::Display + Recycleable {
   }
 }
 
-impl <T> Deref for Recycled<T> where T : Recycleable {
+impl <'pool, T> Deref for Recycled<'pool, T> where T : Recycleable{
   type Target = T;
   #[inline] 
   fn deref<'a>(&'a self) -> &'a T {
@@ -103,16 +102,16 @@ impl <T> Deref for Recycled<T> where T : Recycleable {
   }
 }
 
-impl <T> DerefMut for Recycled<T> where T : Recycleable {
+impl <'pool, T> DerefMut for Recycled<'pool, T> where T : Recycleable {
   #[inline] 
   fn deref_mut<'a>(&'a mut self) -> &'a mut T {
     self.as_mut()
   }
 }
 
-impl <T> Recycled<T> where T : Recycleable {
+impl <'pool, T> Recycled<'pool, T> where T : Recycleable {
   #[inline] 
-  pub fn new(pool: Rc<RefCell<Vec<T>>>, value: T) -> Recycled<T> {
+  pub fn new (pool: &'pool RefCell<Vec<T>>, value: T) -> Recycled<'pool, T> {
     Recycled {
       value: Some(value),
       pool: pool
@@ -120,7 +119,7 @@ impl <T> Recycled<T> where T : Recycleable {
   }
   
   #[inline] 
-  pub fn new_from<A>(pool: Rc<RefCell<Vec<T>>>, mut value: T, source: A) -> Recycled<T> where T : InitializeWith<A> {
+  pub fn new_from<A>(pool: &'pool RefCell<Vec<T>>, mut value: T, source: A) -> Recycled<'pool, T> where T : InitializeWith<A> {
     value.initialize_with(source);
     Recycled {
       value: Some(value),
@@ -137,7 +136,7 @@ impl <T> Recycled<T> where T : Recycleable {
 }
 
 pub struct Pool <T> where T : Recycleable {
-  values: Rc<RefCell<Vec<T>>>,
+  values: RefCell<Vec<T>>,
 }
 
 impl <T> Pool <T> where T: Recycleable {
@@ -148,18 +147,18 @@ impl <T> Pool <T> where T: Recycleable {
       .map(|_| T::new() )
       .collect();
     Pool {
-      values: Rc::new(RefCell::new(values)),
+      values: RefCell::new(values),
     }
   }
 
   #[inline] 
-  pub fn attach(&mut self, value: T) -> Recycled<T> {
-    let pool_reference = self.values.clone();
+  pub fn attach<'pool> (&'pool self, value: T) -> Recycled<'pool, T> {
+    let pool_reference = &self.values;
     Recycled::new(pool_reference, value)
   }
 
   #[inline] 
-  pub fn detached(&mut self) -> T {
+  pub fn detached(&self) -> T {
     match self.values.borrow_mut().pop() {
       Some(v) => v,
       None => T::new()
@@ -167,16 +166,16 @@ impl <T> Pool <T> where T: Recycleable {
   }
 
   #[inline] 
-  pub fn new(&mut self) -> Recycled<T> {
+  pub fn new<'pool>(&'pool self) -> Recycled<'pool, T> {
     let t = self.detached();
-    let pool_reference = self.values.clone();
+    let pool_reference = &self.values;
     Recycled::new(pool_reference, t)
   }
  
   #[inline(always)] 
-  pub fn new_from<A>(&mut self, source: A) -> Recycled<T> where T: InitializeWith<A> {
+  pub fn new_from<'pool, A>(&'pool self, source: A) -> Recycled<'pool, T> where T: InitializeWith<A> {
     let t = self.detached();
-    let pool_reference = self.values.clone();
+    let pool_reference = &self.values;
     Recycled::new_from(pool_reference, t, source)
   }
 
